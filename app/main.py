@@ -34,7 +34,7 @@ async def websocket_endpoint(websocket: WebSocket):
             )
 
             await websocket.send_text(
-                "Audio received by ERYX"
+                "Audio received by ERYX" 
             )
 
     except Exception as e:
