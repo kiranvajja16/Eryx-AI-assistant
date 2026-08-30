@@ -21,22 +21,34 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await websocket.accept()
 
-    print(" ERYX: Client connected")
+    print("ERYX: Client connected")
+
+    audio_chunks = []
 
     try:
 
         while True:
 
-            audio_data = await websocket.receive_bytes()
+            message = await websocket.receive()
 
-            print(
-                f" Received audio chunk: {len(audio_data)} bytes"
-            )
+            # Audio chunk
+            if message.get("bytes") is not None:
 
-            await websocket.send_text(
-                "Audio received by ERYX" 
-            )
+                audio_data = message["bytes"]
+
+                print(
+                    f"Received audio chunk: {len(audio_data)} bytes"
+                )
+
+                audio_chunks.append(audio_data)
+
+            # STOP message
+            elif message.get("text") == "STOP":
+
+                print("ERYX: Recording finished")
+
+                break
 
     except Exception as e:
 
-        print(f" WebSocket closed: {e}")
+        print(f"WebSocket closed: {e}")
