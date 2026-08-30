@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>ERYX AI Assistant</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 80px;
+            background: #111;
+            color: white;
+        }
+
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            cursor: pointer;
+            margin: 10px;
+        }
+
+        #status {
+            margin-top: 30px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>ERYX</h1>
+
+    <p>Real-Time AI Voice Assistant</p>
+
+    <button id="startBtn">
+         Start ERYX
+    </button>
+
+    <button id="stopBtn" disabled>
+         Stop
+    </button>
+
+    <div id="status">
+        ERYX is offline
+    </div>
+
+
+    <script>
+
+        let websocket;
+        let audioContext;
+        let processor;
+        let microphone;
+
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const status = document.getElementById("status");
+
+
+        startBtn.onclick = async function () {
+
+            try {
+
+                status.innerText = "Connecting to ERYX...";
+
+                websocket = new WebSocket(
+                    "ws://127.0.0.1:8000/ws"
+                );
+
+                websocket.binaryType = "arraybuffer";
+
+
+                websocket.onopen = async function () {
+
+                    console.log("WebSocket connected");
+
+                    status.innerText =
+                        "ERYX is listening ";
+
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+
+
+                    const stream =
+                        await navigator.mediaDevices
+                            .getUserMedia({
+                                audio: true
+                            });
+
+
+                    audioContext =
+                        new AudioContext();
+
+                    microphone =
+                        audioContext
+                            .createMediaStreamSource(stream);
+
+
+                    processor =
+                        audioContext
+                            .createScriptProcessor(
+                                4096,
+                                1,
+                                1
+                            );
+
+
+                    processor.onaudioprocess =
+                        function (event) {
+
+                            const input =
+                                event.inputBuffer
+                                    .getChannelData(0);
+
+
+                            const audioData =
+                                new Float32Array(input);
+
+
+                            if (
+                                websocket &&
+                                websocket.readyState === WebSocket.OPEN
+                            ) {
+
+                                websocket.send(
+                                    audioData.buffer
+                                );
+
+                            }
+
+                        };
+
+
+                    microphone.connect(processor);
+
+                    processor.connect(
+                        audioContext.destination
+                    );
+
+                };
+
+
+                websocket.onmessage =
+                    function (event) {
+
+                        console.log(
+                            "Server:",
+                            event.data
+                        );
+
+                    };
+
+
+                websocket.onerror =
+                    function (error) {
+
+                        console.error(
+                            "WebSocket error:",
+                            error
+                        );
+
+                        status.innerText =
+                            "Connection error ";
+                    };
+
+
+            } catch (error) {
+
+                console.error(error);
+
+                status.innerText =
+                    "Microphone access failed ";
+            }
+
+        };
+
+
+        stopBtn.onclick = function () {
+
+            if (processor) {
+                processor.disconnect();
+            }
+
+            if (microphone) {
+                microphone.disconnect();
+            }
+
+            if (audioContext) {
+                audioContext.close();
+            }
+
+            if (websocket) {
+                websocket.close();
+            }
+
+            status.innerText =
+                "ERYX stopped ";
+
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        };
+
+    </script>
+
+</body>
+
+</html>
