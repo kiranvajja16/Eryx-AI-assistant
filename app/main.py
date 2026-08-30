@@ -1,6 +1,7 @@
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse
+import os
 
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 app = FastAPI(title="ERYX AI Assistant")
 
 
@@ -15,40 +16,69 @@ def health():
         "status": "healthy"
     }
 
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
 
-    await websocket.accept()
-
-    print("ERYX: Client connected")
-
-    audio_chunks = []
-
     try:
+        await websocket.accept()
+
+        print("ERYX: Client connected")
+
+        audio_chunks = []
 
         while True:
 
             message = await websocket.receive()
 
-            # Audio chunk
-            if message.get("bytes") is not None:
+            # Audio data
+            if message["type"] == "websocket.receive":
 
-                audio_data = message["bytes"]
+                if message.get("bytes") is not None:
 
-                print(
-                    f"Received audio chunk: {len(audio_data)} bytes"
-                )
+                    audio_data = message["bytes"]
 
-                audio_chunks.append(audio_data)
+                    print(
+                        f"Received audio chunk: {len(audio_data)} bytes"
+                    )
 
-            # STOP message
-            elif message.get("text") == "STOP":
+                    audio_chunks.append(audio_data)
 
-                print("ERYX: Recording finished")
+                # Text message
+                elif message.get("text") is not None:
 
-                break
+                    command = message["text"]
+
+                    print(f"Received command: {command}")
+
+                    if command == "stop":
+
+                        print("ERYX: Recording stopped")
+
+                        # Combine all audio chunks
+                        complete_audio = b"".join(audio_chunks)
+
+                        os.makedirs("data", exist_ok=True)
+
+                        audio_path = "data/recording.webm"
+
+                        with open(audio_path, "wb") as audio_file:
+                            audio_file.write(complete_audio)
+
+                        print(
+                            f"Audio saved: {audio_path}"
+                        )
+
+                        # Clear chunks for next recording
+                        audio_chunks = []
+
+                        await websocket.send_text(
+                            "Audio saved successfully"
+                        )
+
+    except WebSocketDisconnect:
+
+        print("ERYX: Client disconnected")
 
     except Exception as e:
 
-        print(f"WebSocket closed: {e}")
+        print(f"WebSocket error: {e}")
