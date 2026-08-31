@@ -12,149 +12,62 @@
 
     <title>ERYX AI Assistant</title>
 
-
     <style>
 
-        * {
-            box-sizing: border-box;
-        }
-
-
         body {
-
-            margin: 0;
-
             font-family: Arial, sans-serif;
-
-            background: #f5f5f5;
-
             text-align: center;
-
-            color: #111;
-
+            margin-top: 60px;
+            background: #f5f5f5;
         }
-
-
-        .container {
-
-            max-width: 900px;
-
-            margin: 50px auto;
-
-            padding: 20px;
-
-        }
-
 
         h1 {
-
-            font-size: 52px;
-
+            font-size: 48px;
             margin-bottom: 10px;
-
         }
 
+        p {
+            font-size: 18px;
+        }
 
-        .subtitle {
-
+        button {
+            margin-top: 30px;
+            padding: 18px 35px;
             font-size: 20px;
-
-            margin-bottom: 40px;
-
-        }
-
-
-        #micButton {
-
-            padding: 20px 40px;
-
-            font-size: 22px;
-
             border: none;
-
-            border-radius: 12px;
-
+            border-radius: 10px;
             cursor: pointer;
-
-            background: #eeeeee;
-
-            transition: 0.2s;
-
         }
-
-
-        #micButton:hover {
-
-            transform: scale(1.03);
-
-        }
-
-
-        #micButton:disabled {
-
-            cursor: not-allowed;
-
-            opacity: 0.6;
-
-        }
-
 
         #status {
-
-            margin-top: 30px;
-
-            font-size: 20px;
-
+            margin-top: 25px;
             font-weight: bold;
-
-            min-height: 30px;
-
         }
 
+        #latency {
+            margin-top: 15px;
+            font-weight: bold;
+        }
 
         .box {
-
-            width: 100%;
-
-            margin: 30px auto;
-
-            padding: 25px;
-
+            width: 80%;
+            max-width: 800px;
+            margin: 25px auto;
+            padding: 20px;
             background: white;
-
-            border-radius: 15px;
-
+            border-radius: 12px;
             text-align: left;
-
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-
         }
-
 
         .label {
-
-            font-size: 20px;
-
             font-weight: bold;
-
-            margin-bottom: 15px;
-
+            margin-bottom: 8px;
         }
-
 
         #transcript,
         #answer {
-
-            font-size: 18px;
-
-            line-height: 1.6;
-
-            min-height: 35px;
-
-            white-space: pre-wrap;
-
+            min-height: 30px;
         }
-
 
     </style>
 
@@ -163,29 +76,27 @@
 
 <body>
 
-
-<div class="container">
-
-
     <h1>ERYX</h1>
 
-
-    <div class="subtitle">
+    <p>
         Real-Time AI Voice Assistant
-    </div>
+    </p>
 
 
     <button id="micButton">
-        🎤 Start ERYX
+        🎤 Activate ERYX
     </button>
 
 
-    <div id="status">
-        🔵 Connecting...
-    </div>
+    <p id="status">
+        🔴 Connecting...
+    </p>
 
 
-    <!-- USER -->
+    <p id="latency">
+        ⚡ Response latency: -
+    </p>
+
 
     <div class="box">
 
@@ -200,8 +111,6 @@
     </div>
 
 
-    <!-- ERYX -->
-
     <div class="box">
 
         <div class="label">
@@ -215,15 +124,12 @@
     </div>
 
 
-</div>
-
-
 <script>
 
 
-// =====================================================
+// ======================================================
 // GLOBAL VARIABLES
-// =====================================================
+// ======================================================
 
 let socket = null;
 
@@ -238,16 +144,43 @@ let pcmProcessor = null;
 let recording = false;
 
 
-// ERYX AUDIO PLAYBACK
+// ======================================================
+// PLAYBACK
+// ======================================================
 
 let playbackContext = null;
 
 let nextPlayTime = 0;
 
 
-// =====================================================
+// ======================================================
+// WAKE WORD
+// ======================================================
+
+let recognition = null;
+
+let wakeWordActive = false;
+
+let recognitionStarting = false;
+
+
+// ======================================================
+// LATENCY
+// ======================================================
+
+// Time when user ends the turn.
+
+let turnEndTime = null;
+
+
+// Prevent measuring multiple audio chunks.
+
+let firstAudioReceived = false;
+
+
+// ======================================================
 // DOM ELEMENTS
-// =====================================================
+// ======================================================
 
 const button =
     document.getElementById("micButton");
@@ -261,216 +194,544 @@ const transcript =
 const answer =
     document.getElementById("answer");
 
-
-// =====================================================
-// CONNECT TO FASTAPI
-// =====================================================
-
-function connectWebSocket() {
-
-    socket = new WebSocket(
-        "ws://127.0.0.1:8000/ws"
-    );
+const latency =
+    document.getElementById("latency");
 
 
-    socket.binaryType = "arraybuffer";
+// ======================================================
+// WAKE WORD SETUP
+// ======================================================
+
+function setupWakeWord() {
+
+    const SpeechRecognition =
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
 
 
-    // -------------------------------------------------
-    // CONNECTED
-    // -------------------------------------------------
+    if (!SpeechRecognition) {
 
-    socket.onopen = function () {
-
-        console.log(
-            "Connected to ERYX"
+        console.warn(
+            "SpeechRecognition is not supported."
         );
 
         status.textContent =
-            "🟢 ERYX Connected";
+            "⚠️ Wake word unavailable — use button";
 
-        button.disabled = false;
+        return;
 
-    };
-
-
-    // -------------------------------------------------
-    // DISCONNECTED
-    // -------------------------------------------------
-
-    socket.onclose = function () {
-
-        console.log(
-            "Disconnected from ERYX"
-        );
-
-        status.textContent =
-            "🔴 ERYX Disconnected";
-
-        button.disabled = true;
-
-        recording = false;
-
-    };
+    }
 
 
-    // -------------------------------------------------
-    // ERROR
-    // -------------------------------------------------
-
-    socket.onerror = function (error) {
-
-        console.error(
-            "WebSocket error:",
-            error
-        );
-
-        status.textContent =
-            "❌ Connection error";
-
-    };
+    recognition =
+        new SpeechRecognition();
 
 
-    // =================================================
-    // RECEIVE DATA FROM ERYX
-    // =================================================
-
-    socket.onmessage = async function (event) {
+    recognition.lang =
+        "en-US";
 
 
-        // =================================================
-        // AUDIO DATA
-        // =================================================
-
-        if (event.data instanceof ArrayBuffer) {
-
-            console.log(
-                "Received ERYX audio:",
-                event.data.byteLength,
-                "bytes"
-            );
+    recognition.continuous =
+        true;
 
 
-            await playPCM(
-                event.data
-            );
+    recognition.interimResults =
+        true;
 
 
-            status.textContent =
-                "🔊 ERYX is speaking...";
+    recognition.maxAlternatives =
+        1;
 
 
-            return;
+    recognition.onstart =
+        function () {
 
-        }
+            recognitionStarting =
+                false;
 
-
-        // =================================================
-        // TEXT DATA
-        // =================================================
-
-        let message;
+            wakeWordActive =
+                true;
 
 
-        try {
+            if (!recording) {
 
-            message =
-                JSON.parse(event.data);
-
-        }
-
-        catch (error) {
-
-            console.error(
-                "Invalid ERYX message:",
-                event.data
-            );
-
-            return;
-
-        }
-
-
-        console.log(
-            "ERYX message:",
-            message
-        );
-
-
-        // =================================================
-        // USER TRANSCRIPT
-        // =================================================
-
-        if (
-            message.type ===
-            "transcript"
-        ) {
-
-            transcript.textContent =
-                message.text;
-
-
-            status.textContent =
-                "🧠 ERYX is thinking...";
-
-        }
-
-
-        // =================================================
-        // ERYX TRANSCRIPT
-        // =================================================
-
-        else if (
-            message.type ===
-            "answer"
-        ) {
-
-            /*
-             * Gemini can send the response
-             * transcription in multiple chunks.
-             *
-             * Therefore append instead of replacing.
-             */
-
-            if (
-                answer.textContent === "-"
-            ) {
-
-                answer.textContent = "";
+                status.textContent =
+                    '🎧 Say "Hey ERYX"';
 
             }
 
 
-            answer.textContent +=
-                message.text;
+            console.log(
+                "Wake-word listener started"
+            );
 
-        }
+        };
 
 
-        // =================================================
-        // TURN COMPLETE
-        // =================================================
+    recognition.onresult =
+        function (event) {
 
-        else if (
-            message.type === "turn_complete"
-        ) {
+            let text = "";
 
-            status.textContent =
-                "🟢 Ready for next question";
+
+            for (
+                let i = event.resultIndex;
+                i < event.results.length;
+                i++
+            ) {
+
+                text +=
+                    event.results[i][0].transcript;
+
+            }
+
+
+            text =
+                text.toLowerCase()
+                    .trim();
+
 
             console.log(
-                "ERYX: Ready for next turn"
+                "Wake listener:",
+                text
             );
-        }
 
-    };
+
+            const wakeWords = [
+                "hey eryx",
+                "hey erix",
+                "hey erics",
+                "hi eryx",
+                "hello eryx"
+            ];
+
+
+            const detected =
+                wakeWords.some(
+                    word =>
+                        text.includes(word)
+                );
+
+
+            if (detected) {
+
+                console.log(
+                    "🔥 WAKE WORD DETECTED"
+                );
+
+
+                activateERYX();
+
+            }
+
+        };
+
+
+    recognition.onerror =
+        function (event) {
+
+            recognitionStarting =
+                false;
+
+            console.warn(
+                "Wake recognition error:",
+                event.error
+            );
+
+        };
+
+
+    recognition.onend =
+        function () {
+
+            recognitionStarting =
+                false;
+
+
+            if (
+                wakeWordActive &&
+                !recording
+            ) {
+
+                setTimeout(
+                    startWakeWord,
+                    500
+                );
+
+            }
+
+        };
 
 }
 
 
-// =====================================================
+// ======================================================
+// START WAKE WORD
+// ======================================================
+
+function startWakeWord() {
+
+    if (!recognition) {
+        return;
+    }
+
+
+    if (recognitionStarting) {
+        return;
+    }
+
+
+    if (recording) {
+        return;
+    }
+
+
+    if (!wakeWordActive) {
+
+        wakeWordActive =
+            true;
+
+    }
+
+
+    recognitionStarting =
+        true;
+
+
+    try {
+
+        recognition.start();
+
+    }
+
+    catch (error) {
+
+        recognitionStarting =
+            false;
+
+        console.log(
+            "Wake listener already active"
+        );
+
+    }
+
+}
+
+
+// ======================================================
+// STOP WAKE WORD
+// ======================================================
+
+function stopWakeWord() {
+
+    if (!recognition) {
+        return;
+    }
+
+
+    wakeWordActive =
+        false;
+
+
+    recognitionStarting =
+        false;
+
+
+    try {
+
+        recognition.stop();
+
+    }
+
+    catch (error) {
+
+        console.log(
+            "Wake recognition stop error:",
+            error
+        );
+
+    }
+
+}
+
+
+// ======================================================
+// ACTIVATE ERYX
+// ======================================================
+
+async function activateERYX() {
+
+    console.log(
+        "🚀 Activating ERYX"
+    );
+
+
+    stopWakeWord();
+
+
+    status.textContent =
+        "🎤 ERYX activated — speak now";
+
+
+    await startRecording();
+
+}
+
+
+// ======================================================
+// WEBSOCKET CONNECTION
+// ======================================================
+
+function connectWebSocket() {
+
+    socket =
+        new WebSocket(
+            "ws://127.0.0.1:8000/ws"
+        );
+
+
+    socket.binaryType =
+        "arraybuffer";
+
+
+    socket.onopen =
+        function () {
+
+            console.log(
+                "Connected to ERYX"
+            );
+
+
+            status.textContent =
+                '🟢 Connected — say "Hey ERYX"';
+
+
+            startWakeWord();
+
+        };
+
+
+    socket.onclose =
+        function () {
+
+            console.log(
+                "Disconnected from ERYX"
+            );
+
+
+            status.textContent =
+                "🔴 ERYX Disconnected";
+
+        };
+
+
+    socket.onerror =
+        function (error) {
+
+            console.error(
+                "WebSocket error:",
+                error
+            );
+
+
+            status.textContent =
+                "❌ Connection error";
+
+        };
+
+
+    // ==================================================
+    // RECEIVE FROM SERVER
+    // ==================================================
+
+    socket.onmessage =
+        async function (event) {
+
+
+            // ==========================================
+            // ERYX AUDIO
+            // ==========================================
+
+            if (
+                event.data instanceof ArrayBuffer
+            ) {
+
+                console.log(
+                    "ERYX audio:",
+                    event.data.byteLength,
+                    "bytes"
+                );
+
+
+                // --------------------------------------
+                // LATENCY MEASUREMENT
+                // --------------------------------------
+
+                if (
+                    turnEndTime !== null &&
+                    !firstAudioReceived
+                ) {
+
+                    firstAudioReceived =
+                        true;
+
+
+                    const responseTime =
+                        performance.now() -
+                        turnEndTime;
+
+
+                    const seconds =
+                        responseTime / 1000;
+
+
+                    latency.textContent =
+                        `⚡ Response latency: ${seconds.toFixed(2)} seconds`;
+
+
+                    console.log(
+                        "================================"
+                    );
+
+
+                    console.log(
+                        "⚡ RESPONSE LATENCY:",
+                        responseTime.toFixed(0),
+                        "ms"
+                    );
+
+
+                    console.log(
+                        "================================"
+                    );
+
+                }
+
+
+                await playPCM(
+                    event.data
+                );
+
+
+                status.textContent =
+                    "🔊 ERYX is speaking...";
+
+
+                return;
+
+            }
+
+
+            // ==========================================
+            // TEXT MESSAGE
+            // ==========================================
+
+            let message;
+
+
+            try {
+
+                message =
+                    JSON.parse(event.data);
+
+            }
+
+            catch (error) {
+
+                console.warn(
+                    "Invalid server message:",
+                    event.data
+                );
+
+                return;
+
+            }
+
+
+            console.log(
+                "ERYX message:",
+                message
+            );
+
+
+            // ==========================================
+            // USER TRANSCRIPT
+            // ==========================================
+
+            if (
+                message.type ===
+                "transcript"
+            ) {
+
+                transcript.textContent =
+                    message.text;
+
+
+                status.textContent =
+                    "🧠 ERYX is thinking...";
+
+            }
+
+
+            // ==========================================
+            // ERYX TRANSCRIPT
+            // ==========================================
+
+            else if (
+                message.type ===
+                "answer"
+            ) {
+
+                answer.textContent +=
+                    message.text;
+
+            }
+
+
+            // ==========================================
+            // TURN COMPLETE
+            // ==========================================
+
+            else if (
+                message.type ===
+                "turn_complete"
+            ) {
+
+                console.log(
+                    "ERYX: Turn complete"
+                );
+
+
+                recording =
+                    false;
+
+
+                status.textContent =
+                    '🟢 Say "Hey ERYX" again';
+
+
+                // Clear timer for next turn.
+
+                turnEndTime =
+                    null;
+
+
+                firstAudioReceived =
+                    false;
+
+
+                startWakeWord();
+
+            }
+
+        };
+
+}
+
+
+// ======================================================
 // START RECORDING
-// =====================================================
+// ======================================================
 
 async function startRecording() {
 
@@ -478,43 +739,70 @@ async function startRecording() {
 
         if (
             !socket ||
-            socket.readyState !== WebSocket.OPEN
+            socket.readyState !==
+            WebSocket.OPEN
         ) {
 
-            console.log("WebSocket not ready");
+            console.log(
+                "WebSocket is not ready"
+            );
+
             return;
+
         }
 
-        // Create microphone audio context
 
-        audioContext = new AudioContext({
-            sampleRate: 16000
-        });
+        // ----------------------------------------------
+        // Create 16 kHz audio context
+        // ----------------------------------------------
+
+        audioContext =
+            new AudioContext({
+                sampleRate: 16000
+            });
+
 
         await audioContext.resume();
 
+
+        // ----------------------------------------------
         // Microphone
+        // ----------------------------------------------
 
         microphoneStream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true
-                }
-            });
+            await navigator
+                .mediaDevices
+                .getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+
+        // ----------------------------------------------
+        // Microphone source
+        // ----------------------------------------------
 
         microphoneSource =
-            audioContext.createMediaStreamSource(
-                microphoneStream
+            audioContext
+                .createMediaStreamSource(
+                    microphoneStream
+                );
+
+
+        // ----------------------------------------------
+        // PCM processor
+        // ----------------------------------------------
+
+        await audioContext
+            .audioWorklet
+            .addModule(
+                "/pcm-processor.js"
             );
 
-        // Load processor
-
-        await audioContext.audioWorklet.addModule(
-            "/pcm-processor.js"
-        );
 
         pcmProcessor =
             new AudioWorkletNode(
@@ -522,48 +810,92 @@ async function startRecording() {
                 "pcm-processor"
             );
 
-        // Receive PCM
 
         pcmProcessor.port.onmessage =
-            function(event) {
+            function (event) {
 
                 if (
                     !recording ||
                     !socket ||
-                    socket.readyState !== WebSocket.OPEN
+                    socket.readyState !==
+                    WebSocket.OPEN
                 ) {
+
                     return;
+
                 }
 
-                socket.send(event.data);
+
+                const pcmData =
+                    event.data;
+
+
+                // Do not log every chunk.
+                // Logging every chunk can hurt latency.
+
+                socket.send(
+                    pcmData
+                );
+
             };
+
+
+        // ----------------------------------------------
+        // Connect audio graph
+        // ----------------------------------------------
 
         microphoneSource.connect(
             pcmProcessor
         );
 
-        // Keep processor alive
 
         pcmProcessor.connect(
             audioContext.destination
         );
 
-        // IMPORTANT
 
-        recording = true;
+        recording =
+            true;
+
+
+        // ----------------------------------------------
+        // Reset latency state
+        // ----------------------------------------------
+
+        turnEndTime =
+            null;
+
+
+        firstAudioReceived =
+            false;
+
+
+        latency.textContent =
+            "⚡ Waiting for response...";
+
+
+        // ----------------------------------------------
+        // UI
+        // ----------------------------------------------
 
         button.textContent =
             "⏹ Stop ERYX";
 
+
         status.textContent =
             "🎤 ERYX is listening...";
 
-        transcript.textContent = "-";
 
-        answer.textContent = "";
+        transcript.textContent =
+            "-";
+
+
+        answer.textContent =
+            "";
+
 
         console.log(
-            "ERYX: New turn started"
+            "🎤 Microphone started"
         );
 
     }
@@ -575,100 +907,166 @@ async function startRecording() {
             error
         );
 
+
         status.textContent =
             "❌ Microphone error";
+
+
+        recording =
+            false;
+
+
+        startWakeWord();
+
     }
+
 }
 
-// =====================================================
+
+// ======================================================
 // STOP RECORDING
-// =====================================================
+// ======================================================
 
 function stopRecording() {
 
     if (!recording) {
+
         return;
+
     }
 
-    console.log(
-        "ERYX: Stopping current turn"
-    );
 
-    recording = false;
+    recording =
+        false;
 
-    // Tell Gemini that this audio turn ended
+
+    // ----------------------------------------------
+    // START LATENCY TIMER
+    // ----------------------------------------------
+
+    // This timestamp is taken immediately before
+    // telling Gemini that the user's turn has ended.
+
+    turnEndTime =
+        performance.now();
+
+
+    firstAudioReceived =
+        false;
+
+
+    latency.textContent =
+        "⚡ Measuring response latency...";
+
+
+    // ----------------------------------------------
+    // Tell Gemini to end the audio turn
+    // ----------------------------------------------
 
     if (
         socket &&
-        socket.readyState === WebSocket.OPEN
+        socket.readyState ===
+        WebSocket.OPEN
     ) {
 
-        socket.send("STOP");
+        console.log(
+            "ERYX: Ending turn"
+        );
+
+
+        socket.send(
+            "STOP"
+        );
+
     }
 
-    // Stop microphone
+
+    // ----------------------------------------------
+    // Stop microphone tracks
+    // ----------------------------------------------
 
     if (microphoneStream) {
 
         microphoneStream
             .getTracks()
-            .forEach(track => track.stop());
+            .forEach(
+                track =>
+                    track.stop()
+            );
 
-        microphoneStream = null;
+
+        microphoneStream =
+            null;
+
     }
 
-    // Disconnect source
+
+    // ----------------------------------------------
+    // Disconnect microphone
+    // ----------------------------------------------
 
     if (microphoneSource) {
 
         microphoneSource.disconnect();
 
-        microphoneSource = null;
+        microphoneSource =
+            null;
+
     }
 
-    // Disconnect processor
+
+    // ----------------------------------------------
+    // Disconnect PCM processor
+    // ----------------------------------------------
 
     if (pcmProcessor) {
 
         pcmProcessor.disconnect();
 
-        pcmProcessor = null;
+        pcmProcessor =
+            null;
+
     }
 
-    // Close microphone context
+
+    // ----------------------------------------------
+    // Close recording audio context
+    // ----------------------------------------------
 
     if (audioContext) {
 
         audioContext.close();
 
-        audioContext = null;
+        audioContext =
+            null;
+
     }
 
+
     button.textContent =
-        "🎤 Start ERYX";
+        "🎤 Activate ERYX";
+
 
     status.textContent =
-        "⏳ ERYX is processing...";
+        "⏳ Processing...";
+
 
     console.log(
-        "ERYX: Turn ended"
+        "🎤 Recording stopped"
     );
+
 }
 
-// =====================================================
-// PLAY ERYX PCM AUDIO
-// =====================================================
+
+// ======================================================
+// PLAY ERYX AUDIO
+// ======================================================
 
 async function playPCM(
     arrayBuffer
 ) {
 
     try {
-
-
-        // =================================================
-        // CREATE PLAYBACK CONTEXT
-        // =================================================
 
         if (!playbackContext) {
 
@@ -683,19 +1081,15 @@ async function playPCM(
         await playbackContext.resume();
 
 
-        // =================================================
-        // CONVERT ARRAYBUFFER → INT16
-        // =================================================
+        // ----------------------------------------------
+        // Convert Int16 → Float32
+        // ----------------------------------------------
 
         const int16 =
             new Int16Array(
                 arrayBuffer
             );
 
-
-        // =================================================
-        // INT16 → FLOAT32
-        // =================================================
 
         const float32 =
             new Float32Array(
@@ -715,9 +1109,9 @@ async function playPCM(
         }
 
 
-        // =================================================
-        // CREATE AUDIO BUFFER
-        // =================================================
+        // ----------------------------------------------
+        // Create audio buffer
+        // ----------------------------------------------
 
         const audioBuffer =
             playbackContext
@@ -733,9 +1127,9 @@ async function playPCM(
             .set(float32);
 
 
-        // =================================================
-        // CREATE SOURCE
-        // =================================================
+        // ----------------------------------------------
+        // Create source
+        // ----------------------------------------------
 
         const source =
             playbackContext
@@ -751,9 +1145,9 @@ async function playPCM(
         );
 
 
-        // =================================================
-        // QUEUE AUDIO
-        // =================================================
+        // ----------------------------------------------
+        // Queue audio
+        // ----------------------------------------------
 
         const currentTime =
             playbackContext.currentTime;
@@ -779,12 +1173,7 @@ async function playPCM(
             audioBuffer.duration;
 
 
-        console.log(
-            "Playing ERYX audio"
-        );
-
     }
-
 
     catch (error) {
 
@@ -798,18 +1187,17 @@ async function playPCM(
 }
 
 
-// =====================================================
+// ======================================================
 // BUTTON
-// =====================================================
+// ======================================================
 
 button.addEventListener(
     "click",
     function () {
 
-
         if (!recording) {
 
-            startRecording();
+            activateERYX();
 
         }
 
@@ -823,18 +1211,16 @@ button.addEventListener(
 );
 
 
-// =====================================================
-// INITIAL CONNECTION
-// =====================================================
+// ======================================================
+// INITIALIZATION
+// ======================================================
 
-button.disabled = true;
-
+setupWakeWord();
 
 connectWebSocket();
 
 
 </script>
-
 
 </body>
 
