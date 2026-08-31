@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,88 +8,323 @@
     <title>ERYX AI Assistant</title>
 
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin-top: 100px;
+
+        * {
+            box-sizing: border-box;
         }
 
-        button {
-            padding: 15px 30px;
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: white;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 700px;
+
+            text-align: center;
+
+            padding: 40px;
+
+            background: #1e293b;
+
+            border-radius: 20px;
+        }
+
+        h1 {
+            font-size: 48px;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 35px;
+        }
+
+        #micButton {
+            padding: 16px 35px;
+
             font-size: 18px;
+
+            border: none;
+            border-radius: 30px;
+
             cursor: pointer;
+
+            background: #2563eb;
+            color: white;
+        }
+
+        #micButton:hover {
+            opacity: 0.9;
         }
 
         #status {
             margin-top: 20px;
+            color: #38bdf8;
         }
+
+        .box {
+            margin-top: 25px;
+
+            padding: 20px;
+
+            background: #0f172a;
+
+            border-radius: 12px;
+
+            text-align: left;
+        }
+
+        .box h3 {
+            margin-top: 0;
+            color: #38bdf8;
+        }
+
+        #transcript,
+        #answer {
+            line-height: 1.6;
+            color: #e2e8f0;
+        }
+
     </style>
+
 </head>
+
 
 <body>
 
-    <h1>ERYX</h1>
+    <div class="container">
 
-    <p>Real-Time AI Voice Assistant</p>
+        <h1>ERYX</h1>
 
-    <button id="micButton">
-         Start Recording
-    </button>
-
-    <p id="status">Disconnected</p>
-
-    <script>
-
-        let socket;
-        let mediaRecorder;
-
-        const button = document.getElementById("micButton");
-        const status = document.getElementById("status");
+        <p class="subtitle">
+            Real-Time AI Voice Assistant
+        </p>
 
 
-        // Connect to FastAPI WebSocket
-        function connectWebSocket() {
+        <button id="micButton">
+            🎤 Start Recording
+        </button>
 
-            socket = new WebSocket(
-                "ws://127.0.0.1:8000/ws"
+
+        <p id="status">
+            Connecting...
+        </p>
+
+
+        <div class="box">
+
+            <h3>📝 You said</h3>
+
+            <div id="transcript">
+                Waiting for speech...
+            </div>
+
+        </div>
+
+
+        <div class="box">
+
+            <h3>🤖 ERYX</h3>
+
+            <div id="answer">
+                Waiting for your question...
+            </div>
+
+        </div>
+
+    </div>
+
+
+<script>
+
+    let socket;
+
+    let mediaRecorder;
+
+    const button =
+        document.getElementById("micButton");
+
+    const status =
+        document.getElementById("status");
+
+    const transcript =
+        document.getElementById("transcript");
+
+    const answer =
+        document.getElementById("answer");
+
+
+    // --------------------------------
+    // WebSocket connection
+    // --------------------------------
+
+    function connectWebSocket() {
+
+        socket = new WebSocket(
+            "ws://127.0.0.1:8000/ws"
+        );
+
+
+        socket.onopen = function () {
+
+            status.textContent =
+                " Connected to ERYX";
+
+            console.log(
+                "Connected to ERYX"
             );
 
-            socket.onopen = function () {
+        };
 
-                status.textContent =
-                    "Connected to ERYX";
+
+        socket.onmessage = function(event) {
+
+            const message = event.data;
+
+            console.log(
+                "ERYX:",
+                message
+            );
+
+
+            // -----------------------------
+            // Transcript received
+            // -----------------------------
+
+            if (
+                message.startsWith("TRANSCRIPT:")
+            ) {
+
+                const text =
+                    message.substring(
+                        "TRANSCRIPT:".length
+                    );
+
+                transcript.textContent =
+                    text;
+
+            }
+
+
+            // -----------------------------
+            // LLM answer received
+            // -----------------------------
+
+            else if (
+                message.startsWith("ANSWER:")
+            ) {
+
+                const text =
+                    message.substring(
+                        "ANSWER:".length
+                    );
+
+                answer.textContent =
+                    text;
+
+            }
+
+
+            // -----------------------------
+            // TTS audio ready
+            // -----------------------------
+
+            else if (
+                message === "AUDIO_READY"
+            ) {
 
                 console.log(
-                    "Connected to ERYX"
-                );
-            };
-
-
-            socket.onmessage = function(event) {
-
-                console.log(
-                    "ERYX:",
-                    event.data
+                    "ERYX is speaking..."
                 );
 
                 status.textContent =
-                    event.data;
-            };
+                    " ERYX is speaking...";
 
 
-            socket.onclose = function() {
-
-                status.textContent =
-                    "Disconnected";
-            };
-        }
+                const audio =
+                    new Audio(
+                        "/audio"
+                    );
 
 
-        // Start microphone
-        async function startRecording() {
+                audio.play()
+                    .then(() => {
+
+                        console.log(
+                            "Audio playing"
+                        );
+
+                    })
+                    .catch(error => {
+
+                        console.error(
+                            "Audio playback error:",
+                            error
+                        );
+
+                    });
+
+
+                audio.onended = function() {
+
+                    status.textContent =
+                        " ERYX is ready";
+
+                };
+
+            }
+
+        };
+
+
+        socket.onclose = function() {
+
+            status.textContent =
+                " Disconnected";
+
+            console.log(
+                "WebSocket disconnected"
+            );
+
+        };
+
+
+        socket.onerror = function(error) {
+
+            console.error(
+                "WebSocket error:",
+                error
+            );
+
+            status.textContent =
+                " Connection error";
+
+        };
+
+    }
+
+
+    // --------------------------------
+    // Start recording
+    // --------------------------------
+
+    async function startRecording() {
+
+        try {
 
             const stream =
-                await navigator.mediaDevices
+                await navigator
+                    .mediaDevices
                     .getUserMedia({
                         audio: true
                     });
@@ -103,74 +339,143 @@
 
                     if (
                         event.data.size > 0 &&
-                        socket.readyState === WebSocket.OPEN
+                        socket.readyState ===
+                        WebSocket.OPEN
                     ) {
 
-                        socket.send(event.data);
+                        socket.send(
+                            event.data
+                        );
+
                     }
+
                 };
 
-            //break audio into chuncks
+
+            // Send audio chunks
+            // every 500 milliseconds
+
             mediaRecorder.start(500);
+
 
             status.textContent =
                 " ERYX is listening...";
 
+
             button.textContent =
                 " Stop Recording";
+
+
+            console.log(
+                "Recording started"
+            );
+
         }
 
+        catch (error) {
 
-        function stopRecording() {
-
-            if (mediaRecorder) {
-
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send("STOP");
-                }
-
-                mediaRecorder.stop();
-
-                mediaRecorder.stream
-                    .getTracks()
-                    .forEach(
-                        track => track.stop()
-                    );
-            }
+            console.error(
+                "Microphone error:",
+                error
+            );
 
             status.textContent =
-                "Recording stopped";
+                " Microphone permission denied";
 
-            button.textContent =
-                " Start Recording";
+        }
+
+    }
+
+
+    // --------------------------------
+    // Stop recording
+    // --------------------------------
+
+    function stopRecording() {
+
+        if (!mediaRecorder) {
+            return;
         }
 
 
-        button.addEventListener(
-            "click",
-            function() {
+        if (
+            mediaRecorder.state ===
+            "recording"
+        ) {
 
-                if (
-                    !mediaRecorder ||
-                    mediaRecorder.state === "inactive"
-                ) {
+            mediaRecorder.stop();
 
-                    startRecording();
+        }
 
-                } else {
 
-                    stopRecording();
+        mediaRecorder.stream
+            .getTracks()
+            .forEach(
+                track => track.stop()
+            );
 
-                }
 
-            }
+        if (
+            socket.readyState ===
+            WebSocket.OPEN
+        ) {
+
+            socket.send("STOP");
+
+        }
+
+
+        status.textContent =
+            " ERYX is processing...";
+
+
+        button.textContent =
+            " Start Recording";
+
+
+        console.log(
+            "Recording stopped"
         );
 
+    }
 
-        // Start WebSocket connection
-        connectWebSocket();
 
-    </script>
+    // --------------------------------
+    // Button
+    // --------------------------------
+
+    button.addEventListener(
+        "click",
+        function() {
+
+            if (
+                !mediaRecorder ||
+                mediaRecorder.state ===
+                "inactive"
+            ) {
+
+                startRecording();
+
+            }
+
+            else {
+
+                stopRecording();
+
+            }
+
+        }
+    );
+
+
+    // --------------------------------
+    // Start WebSocket
+    // --------------------------------
+
+    connectWebSocket();
+
+</script>
 
 </body>
+
 </html>

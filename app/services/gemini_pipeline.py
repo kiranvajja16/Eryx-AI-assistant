@@ -13,7 +13,13 @@ def ask_gemini(user_text: str) -> str:
 
     response = client.models.generate_content(
         model="gemini-3.6-flash",
-        contents=user_text
+        contents=[
+            f"""
+    you are ERYX, a helpful real-time AI VOICE assistant.
+    Answer the user's question clearly and naturally.
+    User question:{user_text}
+"""
+        ]
     )
 
     return response.text
