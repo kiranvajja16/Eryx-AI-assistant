@@ -3,13 +3,14 @@ import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
+
 from app.services.speech_pipeline import transcribe_audio
 from app.services.gemini_pipeline import ask_gemini
 from app.services.tts_pipeline import generate_speech, save_wav
-
+from app.services.database import initialize_database
 
 app = FastAPI(title="ERYX AI Assistant")
-
+initialize_database()
 
 # -------------------------
 # HOME PAGE
@@ -202,14 +203,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
     except WebSocketDisconnect:
+        print("ERYX: Client disconnected")
 
-        print(
-            "ERYX: Client disconnected"
-        )
-
+    except RuntimeError as e:
+        print(f"WebSocket runtime error: {e}")
 
     except Exception as e:
-
-        print(
-            f"WebSocket error: {e}"
-        )
+        print(f"WebSocket error: {e}")
