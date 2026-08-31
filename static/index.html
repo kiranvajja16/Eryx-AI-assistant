@@ -452,18 +452,15 @@ function connectWebSocket() {
         // =================================================
 
         else if (
-            message.type ===
-            "turn_complete"
+            message.type === "turn_complete"
         ) {
 
-            console.log(
-                "ERYX turn completed"
-            );
-
-
             status.textContent =
-                "🟢 ERYX Ready";
+                "🟢 Ready for next question";
 
+            console.log(
+                "ERYX: Ready for next turn"
+            );
         }
 
     };
@@ -479,121 +476,45 @@ async function startRecording() {
 
     try {
 
-
-        // =================================================
-        // CHECK WEBSOCKET
-        // =================================================
-
         if (
             !socket ||
-            socket.readyState !==
-            WebSocket.OPEN
+            socket.readyState !== WebSocket.OPEN
         ) {
 
-            console.log(
-                "WebSocket is not ready"
-            );
-
-            status.textContent =
-                "❌ ERYX is not connected";
-
+            console.log("WebSocket not ready");
             return;
-
         }
 
+        // Create microphone audio context
 
-        // =================================================
-        // SEND START ACTIVITY
-        // =================================================
-
-        console.log(
-            "Starting ERYX activity"
-        );
-
-
-        socket.send(
-            "START"
-        );
-
-
-        // =================================================
-        // CREATE AUDIO CONTEXT
-        // =================================================
-
-        audioContext =
-            new AudioContext({
-                sampleRate: 16000
-            });
-
+        audioContext = new AudioContext({
+            sampleRate: 16000
+        });
 
         await audioContext.resume();
 
-
-        console.log(
-            "Audio sample rate:",
-            audioContext.sampleRate
-        );
-
-
-        // =================================================
-        // MICROPHONE
-        // =================================================
+        // Microphone
 
         microphoneStream =
-            await navigator
-                .mediaDevices
-                .getUserMedia({
-
-                    audio: {
-
-                        channelCount: 1,
-
-                        echoCancellation: true,
-
-                        noiseSuppression: true,
-
-                        autoGainControl: true
-
-                    }
-
-                });
-
-
-        console.log(
-            "Microphone permission granted"
-        );
-
-
-        // =================================================
-        // MICROPHONE SOURCE
-        // =================================================
+            await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
 
         microphoneSource =
-            audioContext
-                .createMediaStreamSource(
-                    microphoneStream
-                );
-
-
-        // =================================================
-        // LOAD PCM PROCESSOR
-        // =================================================
-
-        await audioContext
-            .audioWorklet
-            .addModule(
-                "/pcm-processor.js"
+            audioContext.createMediaStreamSource(
+                microphoneStream
             );
 
+        // Load processor
 
-        console.log(
-            "PCM processor loaded"
+        await audioContext.audioWorklet.addModule(
+            "/pcm-processor.js"
         );
-
-
-        // =================================================
-        // CREATE PROCESSOR
-        // =================================================
 
         pcmProcessor =
             new AudioWorkletNode(
@@ -601,108 +522,51 @@ async function startRecording() {
                 "pcm-processor"
             );
 
-
-        // =================================================
-        // RECEIVE PCM DATA
-        // =================================================
+        // Receive PCM
 
         pcmProcessor.port.onmessage =
-            function (event) {
-
-
-                // Do not send after stopping
-
-                if (!recording) {
-
-                    return;
-
-                }
-
-
-                // WebSocket must be connected
+            function(event) {
 
                 if (
+                    !recording ||
                     !socket ||
-                    socket.readyState !==
-                    WebSocket.OPEN
+                    socket.readyState !== WebSocket.OPEN
                 ) {
-
                     return;
-
                 }
 
-
-                const pcmData =
-                    event.data;
-
-
-                console.log(
-                    "Sending PCM:",
-                    pcmData.byteLength,
-                    "bytes"
-                );
-
-
-                socket.send(
-                    pcmData
-                );
-
+                socket.send(event.data);
             };
-
-
-        // =================================================
-        // CONNECT MICROPHONE
-        // =================================================
 
         microphoneSource.connect(
             pcmProcessor
         );
 
-
-        /*
-         * Connect to destination so that
-         * the AudioWorklet keeps running.
-         *
-         * We do NOT want microphone feedback,
-         * so the processor itself does not output
-         * the microphone samples.
-         */
+        // Keep processor alive
 
         pcmProcessor.connect(
             audioContext.destination
         );
 
-
-        // =================================================
-        // RECORDING ACTIVE
-        // =================================================
+        // IMPORTANT
 
         recording = true;
-
 
         button.textContent =
             "⏹ Stop ERYX";
 
-
         status.textContent =
             "🎤 ERYX is listening...";
 
+        transcript.textContent = "-";
 
-        // Clear previous turn
-
-        transcript.textContent =
-            "-";
-
-        answer.textContent =
-            "";
-
+        answer.textContent = "";
 
         console.log(
-            "ERYX microphone started"
+            "ERYX: New turn started"
         );
 
     }
-
 
     catch (error) {
 
@@ -711,21 +575,10 @@ async function startRecording() {
             error
         );
 
-
-        recording = false;
-
-
         status.textContent =
             "❌ Microphone error";
-
-
-        button.textContent =
-            "🎤 Start ERYX";
-
     }
-
 }
-
 
 // =====================================================
 // STOP RECORDING
@@ -733,148 +586,74 @@ async function startRecording() {
 
 function stopRecording() {
 
+    if (!recording) {
+        return;
+    }
 
     console.log(
-        "Stopping ERYX"
+        "ERYX: Stopping current turn"
     );
-
-
-    // =================================================
-    // STOP SENDING PCM FIRST
-    // =================================================
 
     recording = false;
 
-
-    // =================================================
-    // END GEMINI ACTIVITY
-    // =================================================
+    // Tell Gemini that this audio turn ended
 
     if (
         socket &&
-        socket.readyState ===
-        WebSocket.OPEN
+        socket.readyState === WebSocket.OPEN
     ) {
 
-        console.log(
-            "Sending STOP to ERYX"
-        );
-
-
-        socket.send(
-            "STOP"
-        );
-
+        socket.send("STOP");
     }
 
-
-    // =================================================
-    // STOP MICROPHONE
-    // =================================================
+    // Stop microphone
 
     if (microphoneStream) {
 
         microphoneStream
             .getTracks()
-            .forEach(
-                track =>
-                    track.stop()
-            );
+            .forEach(track => track.stop());
 
         microphoneStream = null;
-
     }
 
-
-    // =================================================
-    // DISCONNECT SOURCE
-    // =================================================
+    // Disconnect source
 
     if (microphoneSource) {
 
-        try {
-
-            microphoneSource.disconnect();
-
-        }
-
-        catch (error) {
-
-            console.log(
-                "Source already disconnected"
-            );
-
-        }
+        microphoneSource.disconnect();
 
         microphoneSource = null;
-
     }
 
-
-    // =================================================
-    // DISCONNECT PROCESSOR
-    // =================================================
+    // Disconnect processor
 
     if (pcmProcessor) {
 
-        try {
-
-            pcmProcessor.disconnect();
-
-        }
-
-        catch (error) {
-
-            console.log(
-                "Processor already disconnected"
-            );
-
-        }
+        pcmProcessor.disconnect();
 
         pcmProcessor = null;
-
     }
 
-
-    // =================================================
-    // CLOSE AUDIO CONTEXT
-    // =================================================
+    // Close microphone context
 
     if (audioContext) {
 
-        audioContext
-            .close()
-            .catch(
-                error =>
-                    console.log(
-                        "Audio context close:",
-                        error
-                    )
-            );
+        audioContext.close();
 
         audioContext = null;
-
     }
-
-
-    // =================================================
-    // UPDATE UI
-    // =================================================
 
     button.textContent =
         "🎤 Start ERYX";
 
-
     status.textContent =
-        "⏳ Processing...";
-
+        "⏳ ERYX is processing...";
 
     console.log(
-        "ERYX microphone stopped"
+        "ERYX: Turn ended"
     );
-
 }
-
 
 // =====================================================
 // PLAY ERYX PCM AUDIO

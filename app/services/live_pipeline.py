@@ -18,7 +18,6 @@ LIVE_MODEL = "gemini-3.1-flash-live-preview"
 
 LIVE_CONFIG = types.LiveConnectConfig(
 
-    # ERYX speaks using audio
     response_modalities=["AUDIO"],
 
     system_instruction=types.Content(
@@ -28,7 +27,7 @@ LIVE_CONFIG = types.LiveConnectConfig(
                 text=(
                     "You are ERYX, a helpful real-time voice assistant. "
                     "Speak naturally and concisely. "
-                    "You can answer questions and use available tools "
+                    "You can answer questions and use the available tools "
                     "for reminders and notes. "
                     "Do not mention internal tools unless necessary."
                 )
@@ -36,25 +35,13 @@ LIVE_CONFIG = types.LiveConnectConfig(
         ]
     ),
 
-    # User speech transcription
     input_audio_transcription=(
         types.AudioTranscriptionConfig()
     ),
 
-    # ERYX speech transcription
     output_audio_transcription=(
         types.AudioTranscriptionConfig()
     ),
-
-    # IMPORTANT
-    # We control speech start/end manually
-    realtime_input_config=types.RealtimeInputConfig(
-        automatic_activity_detection=(
-            types.AutomaticActivityDetection(
-                disabled=True
-            )
-        )
-    )
 )
 
 
