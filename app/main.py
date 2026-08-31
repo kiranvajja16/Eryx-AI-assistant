@@ -1,212 +1,335 @@
-import os
+import asyncio
+import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from google.genai import types
 
+from app.services.live_pipeline import create_live_session
 
-from app.services.speech_pipeline import transcribe_audio
-from app.services.gemini_pipeline import ask_gemini
-from app.services.tts_pipeline import generate_speech, save_wav
-from app.services.database import initialize_database
 
 app = FastAPI(title="ERYX AI Assistant")
-initialize_database()
 
-# -------------------------
-# HOME PAGE
-# -------------------------
+
+# ==========================================
+# HOME
+# ==========================================
 
 @app.get("/")
-def home():
-    return FileResponse("static/index.html")
+async def home():
+
+    return FileResponse(
+        "static/index.html"
+    )
 
 
-# -------------------------
-# HEALTH CHECK
-# -------------------------
+# ==========================================
+# HEALTH
+# ==========================================
 
 @app.get("/health")
-def health():
+async def health():
+
     return {
         "status": "healthy"
     }
 
 
-# -------------------------
-# AUDIO ENDPOINT
-# -------------------------
+# ==========================================
+# PCM PROCESSOR
+# ==========================================
 
-@app.get("/audio")
-def get_audio():
+@app.get("/pcm-processor.js")
+async def pcm_processor():
 
     return FileResponse(
-        "data/eryx_response.wav",
-        media_type="audio/wav"
+        "static/pcm-processor.js",
+        media_type="application/javascript"
     )
 
 
-# -------------------------
+# ==========================================
 # WEBSOCKET
-# -------------------------
+# ==========================================
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket
+):
+
+    await websocket.accept()
+
+    print("ERYX: Client connected")
 
     try:
 
-        await websocket.accept()
+        async with create_live_session() as session:
 
-        print("ERYX: Client connected")
+            print(
+                "ERYX: Gemini Live session connected"
+            )
 
-        audio_chunks = []
 
-        while True:
+            # ======================================
+            # BROWSER → GEMINI
+            # ======================================
 
-            message = await websocket.receive()
+            async def browser_to_gemini():
 
-            # -------------------------
-            # AUDIO MESSAGE
-            # -------------------------
+                try:
 
-            if message.get("bytes") is not None:
+                    while True:
 
-                audio_data = message["bytes"]
+                        message = (
+                            await websocket.receive()
+                        )
 
-                print(
-                    f"Received audio chunk: {len(audio_data)} bytes"
-                )
 
-                audio_chunks.append(audio_data)
+                        # ==================================
+                        # AUDIO
+                        # ==================================
 
-            # -------------------------
-            # TEXT MESSAGE
-            # -------------------------
+                        if message.get("bytes") is not None:
 
-            elif message.get("text") is not None:
+                            audio_data = message["bytes"]
 
-                command = message["text"]
+                            print(
+                                f"PCM audio received: "
+                                f"{len(audio_data)} bytes"
+                            )
 
-                print(f"Received command: {command}")
+                            await session.send_realtime_input(
+                                audio=types.Blob(
+                                    data=audio_data,
+                                    mime_type="audio/pcm;rate=16000"
+                                )
+                            )
 
-                # -------------------------
-                # STOP RECORDING
-                # -------------------------
 
-                if command.lower() == "stop":
+                        # ==================================
+                        # TEXT COMMAND
+                        # ==================================
 
-                    print("ERYX: Recording stopped")
+                        elif message.get("text") is not None:
 
-                    # Combine all audio chunks
-                    complete_audio = b"".join(audio_chunks)
+                            command = message["text"]
 
-                    # Make sure data folder exists
-                    os.makedirs("data", exist_ok=True)
+                            print(
+                                f"Browser message: {command}"
+                            )
 
-                    # -------------------------
-                    # SAVE USER AUDIO
-                    # -------------------------
 
-                    audio_path = "data/recording.webm"
+                            # ------------------------------
+                            # START NEW TURN
+                            # ------------------------------
 
-                    with open(audio_path, "wb") as audio_file:
+                            if command.upper() == "START":
 
-                        audio_file.write(complete_audio)
+                                print(
+                                    "ERYX: Starting new turn"
+                                )
 
-                    print(
-                        f"Audio saved: {audio_path}"
-                    )
+                                await session.send_realtime_input(
+                                    activity_start=(
+                                        types.ActivityStart()
+                                    )
+                                )
 
-                    # -------------------------
-                    # SPEECH TO TEXT
-                    # -------------------------
 
-                    print(
-                        "Sending audio to Gemini..."
-                    )
+                            # ------------------------------
+                            # END CURRENT TURN
+                            # ------------------------------
 
-                    transcript = transcribe_audio(
-                        audio_path
-                    )
+                            elif command.upper() == "STOP":
 
-                    print(
-                        "ERYX Transcript:",
-                        transcript
-                    )
+                                print(
+                                    "ERYX: Ending turn"
+                                )
 
-                    # -------------------------
-                    # ASK GEMINI
-                    # -------------------------
+                                await session.send_realtime_input(
+                                    activity_end=(
+                                        types.ActivityEnd()
+                                    )
+                                )
 
-                    answer = ask_gemini(
-                        transcript
-                    )
 
-                    print(
-                        "ERYX Answer:",
-                        answer
-                    )
+                            # ------------------------------
+                            # TEXT INPUT
+                            # ------------------------------
 
-                    # -------------------------
-                    # SEND TEXT TO FRONTEND
-                    # -------------------------
+                            else:
 
-                    await websocket.send_text(
-                        f"TRANSCRIPT:{transcript}"
-                    )
+                                await session.send_realtime_input(
+                                    text=command
+                                )
 
-                    await websocket.send_text(
-                        f"ANSWER:{answer}"
-                    )
 
-                    # -------------------------
-                    # TEXT TO SPEECH
-                    # -------------------------
+                except WebSocketDisconnect:
 
                     print(
-                        "ERYX: Generating speech..."
+                        "ERYX: Browser disconnected"
                     )
 
-                    audio_response = generate_speech(
-                        answer
-                    )
-
-                    # -------------------------
-                    # SAVE WAV FILE
-                    # -------------------------
-
-                    output_path = (
-                        "data/eryx_response.wav"
-                    )
-
-                    save_wav(
-                        audio_response,
-                        output_path
-                    )
+                except Exception as e:
 
                     print(
-                        f"ERYX voice saved: {output_path}"
+                        f"Browser → Gemini error: {e}"
                     )
 
-                    # -------------------------
-                    # TELL FRONTEND
-                    # -------------------------
 
-                    await websocket.send_text(
-                        "AUDIO_READY"
+            # ======================================
+            # GEMINI → BROWSER
+            # ======================================
+
+            async def gemini_to_browser():
+
+                try:
+
+                    async for response in session.receive():
+
+                        server_content = (
+                            response.server_content
+                        )
+
+
+                        if not server_content:
+                            continue
+
+
+                        # ==================================
+                        # MODEL AUDIO
+                        # ==================================
+
+                        if server_content.model_turn:
+
+                            for part in (
+                                server_content
+                                .model_turn
+                                .parts
+                            ):
+
+                                if part.inline_data:
+
+                                    audio_data = (
+                                        part.inline_data.data
+                                    )
+
+                                    print(
+                                        "ERYX audio received:",
+                                        len(audio_data),
+                                        "bytes"
+                                    )
+
+                                    await websocket.send_bytes(
+                                        audio_data
+                                    )
+
+
+                        # ==================================
+                        # USER TRANSCRIPT
+                        # ==================================
+
+                        if (
+                            server_content
+                            .input_transcription
+                        ):
+
+                            transcript = (
+                                server_content
+                                .input_transcription
+                                .text
+                            )
+
+                            if transcript:
+
+                                print(
+                                    "YOU:",
+                                    transcript
+                                )
+
+                                await websocket.send_text(
+                                    json.dumps({
+                                        "type": "transcript",
+                                        "text": transcript
+                                    })
+                                )
+
+
+                        # ==================================
+                        # ERYX TRANSCRIPT
+                        # ==================================
+
+                        if (
+                            server_content
+                            .output_transcription
+                        ):
+
+                            transcript = (
+                                server_content
+                                .output_transcription
+                                .text
+                            )
+
+                            if transcript:
+
+                                print(
+                                    "ERYX:",
+                                    transcript
+                                )
+
+                                await websocket.send_text(
+                                    json.dumps({
+                                        "type": "answer",
+                                        "text": transcript
+                                    })
+                                )
+
+
+                        # ==================================
+                        # TURN COMPLETE
+                        # ==================================
+
+                        if (
+                            server_content
+                            .turn_complete
+                        ):
+
+                            print(
+                                "ERYX: Turn complete"
+                            )
+
+                            await websocket.send_text(
+                                json.dumps({
+                                    "type": "turn_complete"
+                                })
+                            )
+
+
+                except Exception as e:
+
+                    print(
+                        f"Gemini → Browser error: {e}"
                     )
 
-                    # -------------------------
-                    # CLEAR OLD AUDIO CHUNKS
-                    # -------------------------
 
-                    audio_chunks = []
+            # ======================================
+            # RUN BOTH TASKS
+            # ======================================
+
+            await asyncio.gather(
+                browser_to_gemini(),
+                gemini_to_browser()
+            )
 
 
     except WebSocketDisconnect:
-        print("ERYX: Client disconnected")
 
-    except RuntimeError as e:
-        print(f"WebSocket runtime error: {e}")
+        print(
+            "ERYX: Client disconnected"
+        )
 
     except Exception as e:
-        print(f"WebSocket error: {e}")
+
+        print(
+            f"WebSocket error: {e}"
+        )
